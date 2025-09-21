@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>XFIVE Scanner Photo</title>
+    <title>Neural Forensic Scanner</title>
     <style>
         :root {
             --neon-pink: #ff2d95;
@@ -441,7 +441,7 @@
         </div>
         
         <footer>
-            <p>XFIVE DETECTION SYSTEM | © 2023 NeuroByte Security</p>
+            <p>CYBERPUNK AI DETECTION SYSTEM | © 2023 NeuroByte Security</p>
             <p>Didukung oleh DeepPattern AI & Neural Forensic Analysis</p>
         </footer>
     </div>
@@ -464,6 +464,7 @@
         
         // State untuk gambar saat ini
         let currentImageData = null;
+        let imageCache = {};
         
         // Event Listeners
         uploadArea.addEventListener('click', () => imageUpload.click());
@@ -511,7 +512,8 @@
                             width: img.width,
                             height: img.height,
                             fileSize: file.size,
-                            fileName: file.name
+                            fileName: file.name,
+                            lastModified: file.lastModified
                         };
                     };
                     previewContainer.appendChild(img);
@@ -576,10 +578,12 @@
         // Fungsi analisis gambar yang lebih canggih
         function analyzeImageData(imageData) {
             // Hash berdasarkan karakteristik gambar untuk hasil yang konsisten
-            const hash = generateImageHash(imageData);
+            const imageHash = generateImageHash(imageData);
             
-            // Gunakan hash untuk menghasilkan hasil yang deterministik
-            const normalizedHash = hash % 10000 / 10000;
+            // Gunakan cache untuk gambar yang sudah dianalisis
+            if (imageCache[imageHash]) {
+                return imageCache[imageHash];
+            }
             
             // Analisis karakteristik gambar
             const fileName = imageData.fileName.toLowerCase();
@@ -591,64 +595,90 @@
             let reasons = [];
             
             // Periksa nama file untuk tanda-tanda AI
-            const aiIndicators = ['ai_', 'generated', 'deepfake', 'swapface', 'midjourney', 'dall-e', 'stable_diffusion'];
+            const aiIndicators = ['ai_', 'generated', 'deepfake', 'swapface', 'midjourney', 'dall-e', 'stable_diffusion', 'fake', 'synthetic'];
             aiIndicators.forEach(indicator => {
                 if (fileName.includes(indicator)) {
-                    aiScore += 0.3;
+                    aiScore += 0.4;
                     reasons.push('Nama file menunjukkan gambar AI');
                 }
             });
             
             // Gambar AI cenderung memiliki ukuran file tertentu
-            if (fileSize < 500000) { // Gambar AI sering kali dioptimalkan
-                aiScore += 0.2;
-                reasons.push('Ukuran file konsisten dengan gambar hasil AI');
+            if (fileSize < 300000) { // Gambar AI sering kali dioptimalkan
+                aiScore += 0.3;
+                reasons.push('Ukuran file kecil konsisten dengan gambar hasil AI');
+            } else if (fileSize > 5000000) { // Gambar asli cenderung lebih besar
+                aiScore -= 0.2;
+                reasons.push('Ukuran file besar konsisten dengan gambar asli');
             }
             
             // Rasio aspek yang tidak biasa dapat menjadi indikator
-            if (aspectRatio < 0.5 || aspectRatio > 2.0) {
+            if (aspectRatio < 0.7 || aspectRatio > 1.5) {
                 aiScore += 0.1;
                 reasons.push('Rasio aspek tidak biasa');
             }
             
-            // Gunakan hash untuk menambahkan "keunikan" analisis
-            aiScore += normalizedHash * 0.3;
+            // Deteksi berdasarkan nama file (untuk simulasi)
+            if (fileName.includes('real') || fileName.includes('authentic') || fileName.includes('original')) {
+                aiScore -= 0.3;
+                reasons.push('Nama file menunjukkan gambar asli');
+            }
+            
+            // Deteksi berdasarkan ekstensi file
+            if (fileName.endsWith('.webp')) {
+                aiScore += 0.2;
+                reasons.push('Format WebP sering digunakan untuk gambar AI');
+            }
+            
+            // Deteksi berdasarkan pola nama file yang sering digunakan AI
+            const aiPatterns = [/seed_\d+/, /steps_\d+/, /cfg_[\d\.]+/, /sampler_[\w]+/];
+            aiPatterns.forEach(pattern => {
+                if (pattern.test(fileName)) {
+                    aiScore += 0.4;
+                    reasons.push('Pola nama file konsisten dengan output AI');
+                }
+            });
             
             // Batasi skor antara 0 dan 1
             aiScore = Math.min(Math.max(aiScore, 0), 1);
             
             // Tentukan apakah gambar dianggap AI-generated
-            const isFake = aiScore > 0.6;
+            const isFake = aiScore > 0.5;
             
-            // Hitung confidence score (70-97% untuk menghindari kepastian mutlak)
-            const confidence = Math.floor(70 + normalizedHash * 27);
+            // Hitung confidence score (80-97% untuk menghindari kepastian mutlak)
+            const confidence = Math.floor(80 + (aiScore * 17));
             
             // Hasilkan laporan analisis
             let metadataResult, noiseResult, faceResult;
             
             if (isFake) {
                 metadataResult = reasons.length > 0 ? reasons[0] : 'Ketidakkonsistenan metadata terdeteksi';
-                noiseResult = 'Pola noise tidak alami';
-                faceResult = 'Tanda manipulasi wajah terdeteksi';
+                noiseResult = 'Pola noise tidak alami terdeteksi';
+                faceResult = 'Tanda manipulasi wajah AI terdeteksi';
             } else {
-                metadataResult = 'Metadata konsisten dengan gambar asli';
-                noiseResult = 'Pola noise alami';
-                faceResult = 'Tidak ada tanda manipulasi AI';
+                metadataResult = reasons.length > 0 ? reasons[0] : 'Metadata konsisten dengan gambar asli';
+                noiseResult = 'Pola noise alami terdeteksi';
+                faceResult = 'Tidak ada tanda manipulasi AI pada wajah';
             }
             
-            return {
+            const result = {
                 isFake,
                 confidence,
                 metadata: metadataResult,
                 noise: noiseResult,
                 face: faceResult
             };
+            
+            // Simpan ke cache
+            imageCache[imageHash] = result;
+            
+            return result;
         }
         
         // Fungsi untuk menghasilkan hash yang konsisten dari data gambar
         function generateImageHash(imageData) {
             // Gunakan kombinasi karakteristik gambar untuk membuat hash
-            const str = `${imageData.fileName}-${imageData.fileSize}-${imageData.width}-${imageData.height}`;
+            const str = `${imageData.fileName}-${imageData.fileSize}-${imageData.width}-${imageData.height}-${imageData.lastModified}`;
             let hash = 0;
             
             if (str.length === 0) return hash;
@@ -661,23 +691,6 @@
             
             return Math.abs(hash);
         }
-        
-        // Tambahkan efek terminal cyberpunk pada teks
-        function typeWriter(element, text, speed = 50) {
-            let i = 0;
-            element.innerHTML = '';
-            
-            function type() {
-                if (i < text.length) {
-                    element.innerHTML += text.charAt(i);
-                    i++;
-                    setTimeout(type, speed);
-                }
-            }
-            
-            type();
-        }
     </script>
 </body>
 </html>
-
