@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Neural Forensic Scanner v3</title>
+  <style>
+    body { background:#0a0a16; color:#fff; font-family:monospace; text-align:center; padding:20px;}
+    h1 { color:#ff2d95; text-shadow:0 0 10px #ff2d95;}
+    .upload-area {border:2px dashed #0ff0fc; padding:20px; margin:20px auto; width:300px; cursor:pointer;}
+    #imagePreview {max-width:400px; margin:20px auto; display:block;}
+    .result {margin-top:30px; padding:20px; border:1px solid #8a2be2; border-radius:8px;}
+    .fake {color:#ff2d95;}
+    .real {color:#00ff66;}
+  </style>
+
+  <!-- EXIF Metadata -->
+  <script src="https://cdn.jsdelivr.net/npm/exif-js"></script>
+  <!-- Face API -->
+  <script src="https://cdn.jsdelivr.net/npm/face-api.js"></script>
+</head>
+<body>
+  <h1>Neural Forensic Scanner</h1>
+  <p>Deteksi Foto Asli vs AI</p>
+
+  <div class="upload-area" onclick="imageUpload.click()">
+    Klik / Drag gambar disini
+    <input type="file" id="imageUpload" accept="image/*" style="display:none"/>
+  </div>
+
+  <img id="imagePreview" style="display:none"/>
+  <button id="analyzeButton" disabled>🔍 Analisis</button>
+
+  <div id="result" class="result" style="display:none"></div>
+
+  <script>
+    const imageUpload = document.getElementById('imageUpload');
+    const imagePreview = document.getElementById('imagePreview');
+    const analyzeButton = document.getElementById('analyzeButton');
+    const resultBox = document.getElementById('result');
+
+    let currentFile = null;
+
+    // Upload Gambar
+    imageUpload.addEventListener('change', (e)=>{
+      const file = e.target.files[0];
+      if (!file) return;
+      currentFile = file;
+      const reader = new FileReader();
+      reader.onload = (ev)=>{
+        imagePreview.src = ev.target.result;
+        imagePreview.style.display = "block";
+        analyzeButton.disabled = false;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    // Metadata
+    function checkMetadata(file){
+      return new Promise((resolve)=>{
+        EXIF.getData(file, function(){
+          const meta = EXIF.getAllTags(this);
+          if (Object.keys(meta).length === 0){
+            resolve({score:0.3,msg:"Tidak ada metadata kamera → kemungkinan AI"});
+          } else {
+            resolve({score:0,msg:"Metadata kamera valid"});
+          }
+        });
+      });
+    }
+
+    // Noise
+    function analyzeNoise(image){
+      return new Promise((resolve)=>{
+        const c=document.createElement("canvas");
+        const ctx=c.getContext("2d");
+        c.width=image.width; c.height=image.height;
+        ctx.drawImage(image,0,0);
+        const data=ctx.getImageData(0,0,c.width,c.height).data;
+        let gray=[];
+        for(let i=0;i<data.length;i+=4){
+          gray.push(0.299*data[i]+0.587*data[i+1]+0.114*data[i+2]);
+        }
+        const mean=gray.reduce((a,b)=>a+b,0)/gray.length;
+        const variance=gray.reduce((a,b)=>a+(b-mean)**2,0)/gray.length;
+        if (variance<50){
+          resolve({score:0.3,msg:"Noise rendah → konsisten AI"});
+        } else {
+          resolve({score:0,msg:"Noise alami"});
+        }
+      });
+    }
+
+    // Face
+    async function analyzeFace(image){
+      await faceapi.nets.ssdMobilenetv1.loadFromUri('/models');
+      await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
+      const detections = await faceapi.detectAllFaces(image).withFaceLandmarks();
+      if (!detections.length) return {score:0.2,msg:"Tidak ada wajah terdeteksi"};
+      if (detections.length>1) return {score:0.4,msg:"Beberapa wajah (potensi manipulasi)"};
+      return {score:0,msg:"Wajah konsisten & alami"};
+    }
+
+    // Analisis Gabungan
+    analyzeButton.addEventListener('click', async ()=>{
+      resultBox.style.display="block";
+      resultBox.innerHTML="⏳ Analisis...";
+
+      const [meta,noise,face]=await Promise.all([
+        checkMetadata(currentFile),
+        analyzeNoise(imagePreview),
+        analyzeFace(imagePreview)
+      ]);
+
+      let score=meta.score+noise.score+face.score;
+      score=Math.min(score,1);
+      const fake=score>0.5;
+      const conf=Math.round(score*100);
+
+      resultBox.innerHTML=`
+        <h3 class="${fake?'fake':'real'}">${fake?'KONTEN AI TERDETEKSI':'GAMBAR ASLI'}</h3>
+        <p><b>Akurasi:</b> ${conf}%</p>
+        <ul>
+          <li>${meta.msg}</li>
+          <li>${noise.msg}</li>
+          <li>${face.msg}</li>
+        </ul>
+      `;
+    });
+  </script>
+</body>
+</html>
